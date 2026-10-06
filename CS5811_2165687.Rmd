@@ -1,0 +1,808 @@
+---
+title: "CS5811-V2"
+author: "Parul"
+date: "2023-03-10"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Installing all the required packages for this Rmd.
+
+```{r, message = FALSE, echo = FALSE}
+#Installing Packages that are not already available in the system 
+list_of_packages <- c("tidyr","dplyr","ggplot2","tidyverse","Hmisc","Matrix",
+                      "purrr","validate","GGally","gridExtra","rpart","caTools","factoextra",
+                      "corrplot","ggcorrplot","grid","cluster","dendextend","ape","ggdendro",
+                      "animation","skimr"
+                      )
+new_packages <- list_of_packages[!(list_of_packages %in% installed.packages()[,"Package"])]
+if(length(new_packages)) install.packages(new_packages)
+
+#Loading Packages
+invisible(lapply(list_of_packages, require, character.only = TRUE))
+
+```
+
+# Some global settings
+```{r}
+options(max.print = 100000)
+```
+
+# 1. Usesable Functions
+
+### 1.1 Function to print multiple ggplot on single screen.
+```{r}
+
+#https://github.com/kassambara/ggpubr/blob/HEAD/R/as_ggplot.R
+#https://rpkgs.datanovia.com/ggpubr/reference/as_ggplot.html
+
+#Function to print multiple ggplot on single screen
+
+as_ggplot <- function(x){
+
+  # Open null device to avoid blank page before plot------
+  # see cowplot:::as_grob.ggplot
+  null_device <- base::getOption(
+    "ggpubr.null_device",
+    default = cowplot::pdf_null_device
+  )
+  cur_dev <- grDevices::dev.cur()
+  # Open null device to avoid blank page before plot
+  null_device(width = 6, height = 6)
+  null_dev <- grDevices::dev.cur()
+  on.exit({
+    grDevices::dev.off(null_dev)
+    if (cur_dev > 1) grDevices::dev.set(cur_dev)
+  })
+
+  # Convert to ggplot-------------
+  cowplot::ggdraw() +
+    cowplot::draw_grob(grid::grobTree(x))
+}
+```
+
+### 1.2 Function to create barplot for two values variables by Target variable.
+```{r}
+func_bar <- function(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+{ 
+  ggplot(df,aes(x = xcol,fill = ycol)) + 
+  geom_bar(position = "dodge",col = "black", alpha = 0.5)+
+  scale_x_discrete(breaks=bxaxis,labels=xticks)+
+  scale_fill_manual(values = c("#00AFBB", "#E7B800"))+
+  labs(x=xlab,y=ylab,fill="Target",title = plotname)+
+  theme(axis.text.x = element_text(angle = 90))
+  #theme_classic()
+  }
+```
+
+### 1.3 Function to create density plot for GDP,Unemployment and Inflation rate values variables by Target variable.
+```{r}
+func_den <- function(df,xcol,ycol,xlab,ylab,plotname)
+{ 
+  ggplot(df)+aes(x=xcol,fill=colorfill)+
+  geom_density(alpha=0.4)+
+  scale_fill_manual(values = c("#00AFBB", "#E7B800"))+
+  labs(title = plotname,x=xlab,y=ylab,fill="Target")
+  #theme_classic()
+}
+
+```
+
+### 1.4 Function to calculate correlation coefficient for different sections of dataset
+```{r}
+student_cor <- function(df,colnames,header)
+{ 
+  cor_ceff<- cor(df[,colnames],method="spearman", use="pairwise.complete.obs")
+  # cor_plot <- corrplot(cor_ceff,method="color", addCoef.col = "black")
+  
+ ggcor_plot <- ggcorrplot(cor_ceff, hc.order = TRUE, type = "lower",
+   outline.col = "white",
+   ggtheme = ggplot2::theme_minimal,
+   colors = c("#E7B800","#00AFBB"),
+   lab = TRUE,lab_size = 3)+labs(title = header)
+  #return(ggcor_plot)
+}
+```
+
+# 2. Reading and Inspecting dataset
+Prediction of Student Retention: This dataset can be used to develop predictive models that can identify student risk factors for dropout and take early interventions to improve student retention rate.
+
+```{r}
+student_df <- read.csv("raw_student_data.csv")
+```
+
+### 2.1 Understanding the dataset
+```{r}
+#1. getting the dimensions of dataset
+dim(student_df)  #in total there are 35 variables and 4424 rows of data
+
+#2. exploring type of variables
+str(student_df) #All variables are either int or num except Target which is chr
+
+#3. let's have the quick glance on the top 10 lines of the dataset
+head(student_df,10)
+
+#4. for redability use of column names we will modify them and put in new dataframe. Fsem =1st sem,Ssem=2nd Sem
+
+student_new_df <- student_df %>%
+  rename( Day.eve.attendance = Daytime.evening.attendance,
+         Nationality = Nacionality ,
+         Mother.qualification = Mother.s.qualification,
+         Father.qualification=Father.s.qualification,
+         Mother.occupation=Mother.s.occupation,
+         Father.occupation=Father.s.occupation,
+         Fsem.credit=Curricular.units.1st.sem..credited.,
+         Fsem.enrolled=Curricular.units.1st.sem..enrolled.,
+         Fsem.eval=Curricular.units.1st.sem..evaluations.,
+         Fsem.app=Curricular.units.1st.sem..approved.,
+         Fsem.grade = Curricular.units.1st.sem..grade.,
+         Fsem.without.eval = Curricular.units.1st.sem..without.evaluations.,
+         Ssem.credit=Curricular.units.2nd.sem..credited.,
+         Ssem.enrolled=Curricular.units.2nd.sem..enrolled.,
+         Ssem.eval=Curricular.units.2nd.sem..evaluations.,
+         Ssem.app=Curricular.units.2nd.sem..approved.,
+         Ssem.grade = Curricular.units.2nd.sem..grade.,
+         Ssem.without.eval = Curricular.units.2nd.sem..without.evaluations.
+)
+```
+
+### 2.2 Now after making dataset much more redable form lets move further to check data quality.
+```{r}
+#Checking for missing values.
+skim(student_new_df)
+```
+The output of skim () shows there are 109 values in the Target column which are missing.For further analysis of the data set lets apply describe()
+```{r}
+#Checking for missing values Mean,median,mode,highest,lowest and distinct values etc.
+describe(student_new_df)
+```
+### 2.3 Applying validator to check our data doesn't hold any outside range values.
+```{r}
+student_data_rules <- validator(okmarital     = in_range(Marital.status,min = 1 ,max = 6),
+                              okmode          = in_range(Application.mode ,min = 1,max = 18 ),
+                              okorder         = Application.order>=0,
+                              okcourse        = in_range(Course ,min = 1,max = 17 ),
+                              okattendance    = is.element(Day.eve.attendance,c(0,1)),
+                              okqualification = in_range(Course ,min = 1,max = 17 ),
+                              oknationality   = in_range(Nationality ,min = 1,max = 21 ),
+                              okmotherqual    = in_range(Mother.qualification ,min = 1,max = 34 ),
+                              okfatherqual    = in_range(Father.qualification ,min = 1,max = 34 ),
+                              okmotheroccu    = in_range(Mother.occupation ,min = 1,max = 46 ),
+                              okfatheroccu    = in_range(Father.occupation ,min = 1,max = 46 ),
+                              okdisplaced     = is.element(Displaced,c(0,1)),
+                              okneeds         = is.element(Educational.special.needs,c(0,1)),
+                              okdebt          = is.element(Debtor,c(0,1)),
+                              okfees          = is.element(Tuition.fees.up.to.date,c(0,1)),
+                              okgender        = is.element(Gender,c(0,1)),
+                              okscholarship   = is.element(Scholarship.holder,c(0,1)),
+                              okage           = Age.at.enrollment >=16,
+                              okinternational = is.element(International,c(0,1)),
+                              oktarget        = is.element(Target,c("Dropout","Enrolled","Graduate"))
+)
+                              
+```
+
+```{r}
+quality_check <- confront(student_new_df,student_data_rules)
+summary(quality_check)
+```
+Our data has 109 missing values lets try to explore it if we can impute or we can drop those rows.
+
+```{r}
+paste("The total number of missing values in our data:", sum(is.na(student_new_df)))
+
+colSums(is.na(student_new_df)) # Total missing values in every column
+```
+```{r}
+num_of_rows = nrow(student_new_df)
+paste("The percentage of values missing our target variable is: ", sum(is.na(student_new_df))/num_of_rows * 100)
+```
+Around 2.5 percent of the values are missing which can significantly impact on the performance of our model. Therefore, it is better to impute the missing values.
+
+```{r}
+table(student_new_df$Target)
+```
+
+If we impute all the values that are missing with `Graduate` only than it could create bias in our results. Therefore, we will impute randomly a third of each categories 
+
+```{r}
+n <- sum(is.na(student_new_df$Target))    # storing the number of NA's in our Target Variable
+student_new_df <- student_new_df %>%    #Creating new dataframe for cleaned data
+  mutate(Target = ifelse(is.na(Target), rep(c("Enrolled", "Graduate", "Dropout"), each = ceiling(n/3))[1:n], Target)) #Replacing NA's with each given categories one by one so that it will be equally manipulated
+```
+
+```{r}
+table(student_new_df$Target)
+```
+Validating again if there are still missing values in data
+
+```{r}
+quality_check <- confront(student_new_df,student_data_rules)
+summary(quality_check)
+```
+Finally checking for any duplicate data.
+
+```{r}
+#Checking if their are any duplicates in the dataset and if there are any duplicates then delete them.
+if(sum(duplicated(student_new_df))!=0) {
+  student_new_df <- subset(unique(student_new_df))
+  
+}
+#duplicated function returns the rows in boolean form if they are duplicated I have applied sum over it if any duplicate rows happen to be in dataset it would have added and total number of duplicated rows must have shown. As sum = 0 
+```
+
+Checking again if any duplication is still there.
+
+```{r}
+dim(student_new_df) 
+sum(duplicated(student_new_df))
+```
+Now we do not have any duplicate data. From here our data set is clean and we can move further to visualize data set.
+
+Note: I have kept some of the categorical data to numeric only for better EDA and prediction modelling.
+
+### 2.4 Visualizing Target variable and Deleting rows with Target = Enrolled.
+```{r}
+ggplot(student_new_df)+aes(x=fct_infreq(Target))+
+  geom_bar(fill = "#00AFBB",col="black",alpha=0.1)+
+  labs(title = "Barplot For Target Variable",x="Values of Target",y="Count")+
+  theme_classic()
+```
+
+Looking at the bar plot we can conclude that Graduate and Dropout are in good numbers and as we don't know enrolled students will eventually complete their graduation or dropout in between we will ignore them in further steps.
+
+We have only our Target variable in Character format converting it into numerical Dropout-0 and Graduate-1 while ignoring the rows with Enrolled as we do not know whether the enrolled student completed their graduation or left in between.
+
+```{r}
+#Deleting Rows with Target = Enrolled
+#Checking Frequency table for Target
+table(student_new_df$Target)
+student_new_df <- subset(student_new_df,Target != "Enrolled")
+#After Deletion
+table(student_new_df$Target)
+#checking dimensions of dataframe without Enrolled Students
+dim(student_new_df)
+
+#Creating new_Target column converting Target variable to factor 
+student_new_df <- student_new_df %>% 
+  mutate(newTarget = Target)
+
+#Assigning Droput = 0 and Graduate = 1 
+student_new_df <- student_new_df %>% 
+   mutate(newTarget = ifelse(newTarget == 'Dropout',0,1))
+
+#Moving newTarget variable at starting location of the data frame.
+student_new_df <- student_new_df %>%
+  relocate(newTarget,everything()) 
+
+#Checking the type of newTarget and matching the values with Target variable.
+str(student_new_df$newTarget)
+table(student_new_df$newTarget)
+```
+So now we have 36 columns with newTarget as numerical variable and we can ignore Target variable.
+
+# 3. Visualising Dataset with respect to our Target variable.
+
+### 3.1 Below are the barplot calls for variables with the 2 values. 
+```{r}
+#Gender : 0=Female, 1=Male
+df <- student_new_df
+xcol <-as.factor(student_new_df$Gender)
+ycol <- student_new_df$Target
+xlab <- "Gender"
+ylab <-"Count"
+xticks <- c("Female","Male")
+bxaxis <- c("0","1")
+plotname <- ("")
+
+#gentar is relation between target and gender of the students
+gentar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+gentar
+
+#inttar is relation between International status and Target variable
+#0=No, 1=Yes
+df <- student_new_df
+xcol <-as.factor(student_new_df$International) 
+ycol <- student_new_df$Target
+xlab <- "Nationality Staus"
+ylab <-"Count"
+xticks <- c("No","Yes")
+bxaxis <- c("0","1")
+#plotname <- ("Barplot For Relation between Target variable and Nationality Status")
+
+#inttar is relation between target and marital status of the students
+inttar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+inttar
+
+#edutar is relation between education needs and Target variable
+#0=No, 1=Yes
+df <- student_new_df
+xcol <-as.factor(student_new_df$Educational.special.needs) 
+ycol <- student_new_df$Target
+xlab <- "Education Needs"
+ylab <-"Count"
+xticks <- c("No","Yes")
+bxaxis <- c("0","1")
+#plotname <- ("Barplot For Relation between Target variable and Nationality Status")
+
+#edutar is relation between target and marital status of the students
+edutar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+edutar
+
+#debtar is relation between debtor and Target variable
+#0=No, 1=Yes
+df <- student_new_df
+xcol <-as.factor(student_new_df$Debtor) 
+ycol <- student_new_df$Target
+xlab <- "Debtor"
+ylab <-"Count"
+xticks <- c("No","Yes")
+bxaxis <- c("0","1")
+#plotname <- ("Barplot For Relation between Target variable and Nationality Status")
+
+#debtar is relation between target and marital status of the students
+debtar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+debtar
+
+#feetar is relation between fees up to date and Target variable
+#0=No, 1=Yes
+df <- student_new_df
+xcol <-as.factor(student_new_df$Tuition.fees.up.to.date) 
+ycol <- student_new_df$Target
+xlab <- "Fees on time"
+ylab <-"Count"
+xticks <- c("No","Yes")
+bxaxis <- c("0","1")
+#plotname <- ("Barplot For Relation between Target variable and Nationality Status")
+
+#edutar is relation between target and marital status of the students
+feetar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+feetar
+
+#schtar is relation between fees up to date and Target variable
+#0=No, 1=Yes
+df <- student_new_df
+xcol <-as.factor(student_new_df$Scholarship.holder) 
+ycol <- student_new_df$Target
+xlab <- "Scholarship Holder"
+ylab <-"Count"
+xticks <- c("No","Yes")
+bxaxis <- c("0","1")
+#plotname <- ("Barplot For Relation between Target variable and Nationality Status")
+
+#schtar is relation between target and marital status of the students
+schtar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+schtar
+
+
+#grid_arrange_shared_legend(gentar,edutar,inttar,nrow=3)
+#to have common legend Target
+nt <- theme(legend.position = "none") 
+
+
+gt <- arrangeGrob(gentar+nt,edutar,inttar+nt,debtar+nt,feetar+nt,schtar+nt,nrow=3,ncol = 2,
+                  top=textGrob("Barplot for all the variables with two values only"))
+as_ggplot(gt)
+```
+
+The above barcharts made it clear graduated female students are more as compared graduated males and numbers are significant high.And infact male student prefer to dropout more that graduate.
+Most of the Studenta are home students only.
+Educational needs is also not make any impact on target variable.
+Very few students who are under depbt prefer to dropout.Most of the students who had paid their fees prefer to complete their graduation.
+Very few students with scholarship decide to levae studies but most of the students who received scholarship prefers to complete their studies.
+
+### 3.2 Visualizing Marital status vs Target Variable.
+```{r}
+#martar is relation between marital status and Target variable
+#1=Single, 2=Married, 3=Widower, 4=Divorced, 5=Facto Union, 6=Legally Seperated
+df <- student_new_df
+xcol <-as.factor(student_new_df$Marital.status) 
+ycol <- student_new_df$Target
+xlab <- "Marital Status"
+ylab <-"Count"
+xticks <- c("Single","Married","Widower","Divorced","Facto Union","Legally Seperated")
+bxaxis <- c("1","2","3","4","5","6")
+plotname <- ("Barplot For Relation between Target variable and Marital Status")
+
+#martar is relation between target and marital status of the students
+martar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+martar
+```
+### 3.3 Visualizing Course selection vs Target.
+```{r}
+#cortar is relation between course selected by students and Target variable
+#1=Biofuel Production Technologies,2==Animation and Multimedia Design,3=Social Service (evening attendance),4=Agronomy,5=Communication Design,6=Veterinary Nursing,7=Informatics Engineering,8=Equiniculture,9=Management,10=Social Service,11=Tourism,12=Nursing,13=Oral Hygiene,14=Advertising and Marketing Management,15=Journalism and Communication,16=Basic Education,17=Management (evening attendance)
+
+df <- student_new_df
+xcol <-as.factor(student_new_df$Course) 
+ycol <- student_new_df$Target
+xlab <- "Course"
+ylab <-"Count"
+xticks <- c("Biofuel Production Technologies","Animation and Multimedia Design","Social Service (evening attendance)","Agronomy","Communication Design","Veterinary Nursing","Informatics Engineering","Equiniculture","Management","Social Service","Tourism","Nursing","Oral Hygiene","Advertising and Marketing Management","Journalism and Communication","Basic Education","Management (evening attendance)"
+)
+bxaxis <- c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17")
+plotname <- ("Barplot For Relation between Target variable and Course selection")
+
+#cortar is relation between target and marital status of the students
+cortar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+cortar
+```
+As we can see nursing course selected by students graduated with less dropouts.
+
+### 3.4 Visualizing Previous qualification vs Target
+```{r}
+#edutar is relation between course selected by students and Target variable
+#1=Secondary education,2=Higher education-bachelor’s degree,3=Higher education-degree,4=Higher education-master’s degree,5=Higher education-doctorate,6=Frequency of higher education,7=12th year of schooling-not completed,8=11th year of schooling-not completed,9=Other-11th year of schooling,10=10th year of schooling,11=10th year of schooling-not completed,12=Basic education 3rd cycle (9th/10th/11th year) or equivalent,13=Basic education 2nd cycle (6th/7th/8th year) or equivalent,14=Technological specialization course,15=Higher education-degree (1st cycle),16=Professional higher technical course,17=Higher education-master’s degree (2nd cycle)
+
+
+df <- student_new_df
+xcol <-as.factor(student_new_df$Previous.qualification) 
+ycol <- student_new_df$Target
+xlab <- "Previous Qualification"
+ylab <-"Count"
+xticks <- c("Secondary education","Bachelor’s degree,","Higher education-degree","Master’s degree","Doctorate","Frequency of higher education","12th not completed","11th not completed","Other-11th year school","10th year of schooling","10th not completed","(9th/10th/11th year) or equivalent","(6th/7th/8th year) or equivalent","Technological specialization course","Higher education-degree (1st cycle)","Professional higher technical course","Higher education-master’s degree (2nd cycle)"
+)
+bxaxis <- c("1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17")
+plotname <- ("Barplot For Relation between Target variable and Prev Education")
+
+#cortar is relation between target and marital status of the students
+quatar <- func_bar(df,xcol,ycol,xlab,ylab,bxaxis,xticks,plotname)
+quatar
+```
+students who has completed their secondary education are more likely to graduate. Rest of the education doesn't play any role into our target variable.
+
+### 3.5 Visualizing MacroEconomic data vs Target
+```{r}
+df <- student_new_df
+colorfill <- student_new_df$Target
+
+xcol <-student_new_df$GDP
+xlab <- "GDP"
+ylab <-"Density"
+plotname <- ("Density Plot for GDP vs Target variable")
+
+#gdptar is defining relation between GDP and Target variable
+gdptar <- func_den(df,xcol,colorfill,xlab,ylab,plotname)
+gdptar
+
+xcol <-student_new_df$Unemployment.rate
+xlab <- "Unemployment Rate"
+ylab <-"Density"
+plotname <- ("Density Plot for Unemployment Rate vs Target variable")
+
+#unetar is defining relation between Unemployment Rate and Target variable
+unetar <- func_den(df,xcol,colorfill,xlab,ylab,plotname)
+unetar
+
+xcol <-student_new_df$Inflation.rate
+xlab <- "Inflation Rate"
+ylab <-"Density"
+plotname <- ("Density Plot for Inflation Rate vs Target variable")
+
+#inftar is defining relation between Inflation Rate and Target variable
+inftar <- func_den(df,xcol,colorfill,xlab,ylab,plotname)
+inftar
+```
+These macroeconomic data is not contributing much to the Student's passing rate.
+
+```{r}
+head(student_new_df)
+```
+
+
+# 4. Exploring data statistically.
+
+### 4.1 Coorelation matrix
+Starting with the correlation matrix so that we can omit unwanted columns for better relation between Target variable and rest of the variables.
+```{r,fig.width=50, fig.height=50}
+#run a correlation and drop the insignificant ones
+student_new_df <- student_new_df[,-2]
+
+cor_student <- cor(student_new_df[,-36])#Ignoring Target column number is 37 variable as it is character
+cor_student
+
+#drop perfect correlations
+cor_student[cor_student == 1] <- NA 
+  
+#turn into a 3-column table
+cor_student <- as.data.frame(as.table(cor_student))
+#remove the NA values from above 
+cor_student <- na.omit(cor_student)
+  
+#select significant values  
+cor_student <- subset(cor_student, abs(Freq) > 0.6) 
+#sort by highest correlation
+cor_student <- cor_student[order(-abs(cor_student$Freq)),] 
+  
+#print table
+cor_student
+
+#turn corr back into matrix in order to plot with corrplot
+cor_mat_student <- reshape2::acast(cor_student, Var1~Var2, value.var="Freq")
+cor_mat_student
+
+#plot correlations
+corrplot(cor_mat_student, is.corr=FALSE, tl.col="black", na.label=" ",
+         type = c("lower"),tl.cex = 5,method = "number",number.cex=3.5,cl.cex = 4,
+         addCoef.col = TRUE)
+```
+
+International,Fsem.enrolled,Fsem.eval,Fsem.app,Fsem.grade,Fsem.credit,Removing Ssem.app too because it has collineraity with Ssem.enrolled and Ssem.grade.Removing 7 columns. (36-7)=29
+
+```{r}
+student_new_df <- subset(student_new_df,select = -c(International,Fsem.enrolled,Fsem.app,Fsem.credit,Fsem.eval,Fsem.grade,Ssem.app))
+dim(student_new_df)
+```
+
+PCA and cluster analysis are unsupervised learning so we should not consider our target variable and newTarget variable in calculating them.
+
+### 4.2 Principle Component Analysis on student_train data
+```{r}
+#set it globally to avoid warning of label overlap
+options(ggrepel.max.overlaps = Inf)
+
+#PCA calculates the linear combination of original predictors.
+#prcomp scale = TRUE or princomp cor = TRUE  so that each of the variables in DA are scaled to have mean = 0 and SD = 1 before calculating PCA
+#only numeric values are allowed so ignoring the last variable Target and 1st which is newTarget which is categorical
+#using fact0extra package
+
+student_pca_results <- princomp(student_new_df[,2:28],cor = TRUE) 
+
+# Eigenvalues
+eig.val <- get_eigenvalue(student_pca_results)
+eig.val
+
+#visualizing eigenvalues(screeplot). Percentage of variance explained by each PC(principle component)PC1 12% PC2 22% and so on. 
+#for more look for eigenvalues
+fviz_eig(student_pca_results,ncp=16,addlabels = TRUE)
+
+#Graph of individuals. Individuals with a similar profile are grouped together.
+fviz_pca_ind(student_pca_results,
+             col.ind = "cos2", # Color by the quality of representation
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE     # Avoid text overlapping
+             )
+
+#Graph of variables. Positive correlated variables point to the same side of the plot. Negative correlated variables point to opposite sides of the graph.
+fviz_pca_var(student_pca_results,
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+             repel = TRUE,     # Avoid text overlapping
+            )
+
+#Biplot of individuals and variables
+fviz_pca_biplot(student_pca_results, repel = TRUE,
+                col.var = "#2E9FDF", # Variables color
+                col.ind = "#696969"  # Individuals color
+                )
+
+student_pca_results$scores
+#stored into datafame
+student_pca_scores <- as.data.frame(student_pca_results$scores)
+
+#Though biplot is quite messy as we have rows of data but the row numbers close to each other on the plot have similar data patterns.
+```
+As we can see from the Cumulative variance percent we can define 30% by 3 dimensions,41% by 5 dimensions and 81% of our dataset with 16 dimensions.We could not be sure what variables to remove so proceeding further with Hierarchical clustering
+
+### 4.3 Hierarchical clustering on student_train data.
+```{r}
+# Hierarchial clustering with 28 variables ignoring non numeric Target variable
+student_normal <- scale(student_new_df[,2:28])
+student_dist <- dist(student_normal,method = 'euclidean')
+student_hclust <- hclust(student_dist,method = 'complete')
+
+# Dendrogram: to see how many clusters can be formed
+plot(student_hclust,hang = -1,main='Dendrogram with all 27 variables') # showing 4 clusters
+rect.hclust(student_hclust,k=8,border = 'blue') 
+
+#par(mar = c(5, 10, 5, 5), oma = c(0, 0, 2, 0), mfrow = c(1, 1), plt = c(0.5, 1, 0.1, 0.9))
+
+heatmap_data <- as.matrix(student_new_df[,2:28])[student_hclust$order,]
+heatmap(heatmap_data, scale="row", Colv=NA, Rowv=TRUE, margins=c(10,5))
+
+# forming 8 clusters
+student_groups <- cutree(student_hclust,8)
+clust_hier_27vars <- as.matrix(student_groups)
+student_final <- cbind(clust_hier_27vars,student_new_df)
+#View(aggregate(student_final[,-c(1,30)],by=list(clust_hier_27vars),FUN=mean))
+```
+The heatmap displays the values of each row across all of the columns in your dataset, with higher values represented by warmer colors and lower values represented by cooler colors. By visualizing the data in this way, you can quickly identify patterns and relationships between the rows and columns of your dataset.But we could not identify any.
+
+```{r}
+library(RColorBrewer)
+library(scales)
+palette(alpha(brewer.pal(9,'Set1'), 0.5))
+plot(student_final[,c(3,4)],col=clust_hier_27vars,pch=16,main='Hierarchial clustering with all 27 variables')
+# when we visualize the clusters using combination of 2 variables, find overlapping clusters We couldn't find any overlapping clusters.
+```
+
+### 4.4 Hierarchial clustering with 3PCA,5PCA and 16PCA scores
+```{r}
+############ Hierarchial clustering with 3 PCs
+student_3pca <-student_pca_results$scores[,1:3]
+student_dist_3pca <- dist(student_3pca,method = 'euclidean')
+student_hclust_3pca <- hclust(student_dist_3pca,method = 'complete')
+
+plot(student_hclust_3pca,hang = -1,main="Dendrogram with 3 PCs") # showing 2 to 3 clusters
+rect.hclust(student_hclust_3pca,k=3,border = 'blue') # 3 irregular sized clusters formed
+
+groups_3pca <- cutree(student_hclust_3pca,3)
+clust_hier_3pca <- as.matrix(groups_3pca)
+student_final <- cbind(clust_hier_3pca,student_final)
+#View(student_final)
+View(aggregate(student_final[,-c(1,2,31)],by=list(clust_hier_3pca),FUN=mean)) 
+plot(student_3pca,col=clust_hier_3pca,pch=16,main='Hierarchial clustering with 3 PCAs')
+```
+
+```{r}
+############ Hierarchial clustering with 5 PCs
+student_5pca <-student_pca_results$scores[,1:5]
+student_dist_5pca <- dist(student_5pca,method = 'euclidean')
+student_hclust_5pca <- hclust(student_dist_5pca,method = 'complete')
+
+plot(student_hclust_5pca,hang = -1,main="Dendrogram with 5 PCs") # showing 2 to 3 clusters
+rect.hclust(student_hclust_5pca,k=3,border = 'blue') # 3 irregular sized clusters formed
+
+groups_5pca <- cutree(student_hclust_5pca,3)
+clust_hier_5pca <- as.matrix(groups_5pca)
+student_final <- cbind(clust_hier_5pca,student_final)
+#View(student_final)
+View(aggregate(student_final[,-c(1,2,3,32)],by=list(clust_hier_5pca),FUN=mean)) 
+plot(student_5pca,col=clust_hier_5pca,pch=16,main='Hierarchial clustering with 5 PCAs')
+```
+In this data may not have any clear clustering structure,it's possible that our data does not contain any meaningful clusters, and all points are more or less similar to each other. In this case, a hierarchical clustering algorithm may assign all points to a single cluster.
+
+```{r}
+############ Hierarchial clustering with 16 PCs 80%
+student_16pca <-student_pca_results$scores[,1:16]
+student_dist_16pca <- dist(student_16pca,method = 'euclidean')
+student_hclust_16pca <- hclust(student_dist_16pca,method = 'complete')
+
+plot(student_hclust_16pca,hang = -1,main="Dendrogram with 5 PCs") # showing 2 to 3 clusters
+rect.hclust(student_hclust_16pca,k=3,border = 'blue') # 3 irregular sized clusters formed
+
+groups_16pca <- cutree(student_hclust_16pca,3)
+clust_hier_16pca <- as.matrix(groups_16pca)
+student_final <- cbind(clust_hier_16pca,student_final)
+View(aggregate(student_final[,-c(1,2,3,4,33)],by=list(clust_hier_16pca),FUN=mean)) 
+plot(student_16pca,col=clust_hier_16pca,pch=16,main='Hierarchial clustering with 16 PCAs')
+```
+
+The clusters of hierarchial clustering are not properly separable (neither in original data nor using a few PCs).
+Finally we will try with Kmeans Clustering.
+
+### 4.5 Kmeans clustering using student_new_df
+```{r}
+# Kmeans clustering using all variables
+#library(animation)
+set.seed(123)
+student_kmeans <- kmeans(student_new_df[,2:28],3) #ignoring Target variables
+#kmeans.ani(student_train[,2:28],3) # shows for 2 variables, but clusters are overlapping
+student_clust_kmeans <- student_kmeans$cluster
+
+student_final <- cbind(student_clust_kmeans,student_final)
+View(aggregate(student_final[,-c(1,2,3,4,5,34)],by=list(student_clust_kmeans),FUN = mean))
+
+plot(student_final[,c(10,11)],col=student_clust_kmeans,pch=16,main='Kmeans with all 27 variables')
+
+# using 2 variables if plot the clusters, could not find any overlapping cluster 
+```
+
+### 4.6 Kmenas clustering for 3PCA,5PCA and 16PCA scores
+```{r}
+# Kmeans clustering using 3 PCs
+head(student_3pca)
+student_kmeans_3pca <- kmeans(student_3pca,3)
+#kmeans.ani(student_3pca,3)
+clust_student_kmeans_3pca <- student_kmeans_3pca$cluster
+student_final <- cbind(clust_student_kmeans_3pca,student_final)
+View(aggregate(student_final[,-c(1:6,35)],by=list(clust_student_kmeans_3pca),FUN = mean))
+
+plot(student_3pca,col=clust_student_kmeans_3pca,pch=16,main='Kmeans with 3 PCs')
+# 3 clear clusters are visible  but all are overlapping
+```
+
+```{r}
+# Kmeans clustering using 5 PCs
+head(student_5pca)
+student_kmeans_5pca <- kmeans(student_5pca,3)
+#kmeans.ani(student_5pca,3)
+clust_student_kmeans_5pca <- student_kmeans_5pca$cluster
+student_final <- cbind(clust_student_kmeans_5pca,student_final)
+View(aggregate(student_final[,-c(1:7,36)],by=list(clust_student_kmeans_5pca),FUN = mean))
+
+plot(student_5pca,col=clust_student_kmeans_5pca,pch=16,main='Kmeans with 5 PCs')
+# 3 clear clusters are visible  but all are overlapping
+```
+
+```{r}
+# Kmeans clustering using 16 PCs
+head(student_16pca)
+student_kmeans_16pca <- kmeans(student_16pca,3)
+#kmeans.ani(student_16pca,3)
+clust_student_kmeans_16pca <- student_kmeans_16pca$cluster
+student_final <- cbind(clust_student_kmeans_16pca,student_final)
+View(aggregate(student_final[,-c(1:8,37)],by=list(clust_student_kmeans_16pca),FUN = mean))
+
+plot(student_16pca,col=clust_student_kmeans_16pca,pch=16,main='Kmeans with 5 PCs')
+# 3 clear clusters are visible  but all are overlapping
+
+# As we can see from the Cumulative variance percent we can define 30% by 3 dimensions,41% by 5 dimensions #and 80% of our dataset with 16 dimensions.' Cluster formed by these PCs are also similar
+```
+
+## CONCLUSION of the EDA
+The student dataset has 29 variables. We have used principal component analysis to reduce the dimensions. To know if the principal components will perform better, we have used clustering on original dataset and then on PC scores.We have done hierarchial and kmeans clustering using 3,5 and 16 PCs and all 28 variables ignoring Target Variable and including newTarget variable with numeric value. The PCs have produced results similar to that of original variables.
+I couldn't reduce the dimension of the dataset so going forward with 28 variables.
+
+## 5. Divide our dataset in train and test data in the ration of 70:30 writing it to CSV file.
+
+> As we don't need the old target variable we will remove it & need to convert the new binary target variable into factors.
+
+```{r}
+student_new_df <- student_new_df[,-29]
+head(student_new_df)
+```
+
+
+```{r}
+set.seed(1)
+
+sample <- sample(c(TRUE, FALSE), nrow(student_new_df), replace=TRUE, prob=c(0.7,0.3))
+student_train  <- student_new_df[sample, ]
+student_test   <- student_new_df[!sample, ]
+
+dim(student_train)
+dim(student_test)
+
+#write file into current working directory
+write.csv(student_train[,-29],"student_train.csv",row.names = FALSE)
+
+write.csv(student_test[,-29],"student_test.csv",row.names = FALSE)
+```
+
+```{r}
+student_new_df$newTarget <- as.factor(student_new_df$newTarget)
+```
+
+
+## Now we need to aplying machine learning model to predict 
+
+```{r}
+#install.packages("rpart")
+library(rpart)
+```
+
+```{r}
+head(student_train)
+```
+```{r}
+str(student_new_df)
+```
+
+
+```{r}
+Decision_tree_model <- rpart( newTarget ~ ., data = student_train, method = "class") # Using "class" for classification
+```
+
+```{r}
+#install.packages("rpart.plot")
+library(rpart.plot)
+
+rpart.plot(Decision_tree_model, extra = 106) 
+```
+
+```{r}
+Decision_tree_prediction <- predict(Decision_tree_model, newdata = student_test, type = "class") # Using "class" for classification
+```
+
+
+```{r}
+library(caret)
+confusionMatrix(Decision_tree_prediction, student_test$newTarget) 
+```
+> We got the accuracy of 84.325%
